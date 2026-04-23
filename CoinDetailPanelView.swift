@@ -85,7 +85,6 @@ struct CoinDetailPanelView: View {
                 .fill(Color.black)
 
             VStack(alignment: .leading, spacing: 0) {
-
                 // Row 1：币种 + 价格
                 HStack(alignment: .center, spacing: 0) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -176,7 +175,9 @@ struct CoinDetailPanelView: View {
                     Spacer(minLength: 8)
                 }
             }
+            .frame(width: CoinDetailPanelView.panelWidth) // 确保内部内容也填满宽度
         }
+        .frame(width: CoinDetailPanelView.panelWidth) // 锁定整体背景宽度
     }
 
     // MARK: - Kline Loading
