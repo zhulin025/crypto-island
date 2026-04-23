@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" width="160" height="160" alt="Crypto Island Logo">
+  <img src="logo_v2.png" width="160" height="160" alt="Crypto Island Logo">
 </p>
 
 <h1 align="center">Crypto Island 🏝️</h1>
@@ -51,7 +51,7 @@ open CryptoIsland.app
 ## 📁 项目结构
 ```text
 cyptoland/
-├── logo.png                  # 项目标识
+├── logo_v2.png                  # 项目标识
 ├── IslandView.swift          # 灵动岛 Ticker 渲染 (含反向圆角逻辑)
 ├── ClickDetectorWindow.swift # 交互窗口管理 (点击拦截 + 动态透传)
 ├── CoinDetailPanelView.swift # 详情面板核心视图
