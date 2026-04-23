@@ -186,11 +186,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             }
             saveConfig()
         }
-        service.onAutoSwitchDataSource = { [weak self] newSource in
-            guard let self else { return }
-            config.dataSource = newSource
-            saveConfig()
-        }
     }
 
     // MARK: - Global Shortcut (Privacy Mode)

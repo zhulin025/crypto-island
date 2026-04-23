@@ -32,6 +32,8 @@ struct SettingsView: View {
 
     // 其他
     @State private var launchAtLogin: Bool
+    @State private var lockPrimaryDataSource: Bool
+    @State private var autoRestorePrimarySource: Bool
 
     // Tab
     @State private var selectedTab = 0
@@ -52,6 +54,8 @@ struct SettingsView: View {
         _holdings        = State(initialValue: config.holdings)
         _priceAlerts     = State(initialValue: config.priceAlerts)
         _launchAtLogin   = State(initialValue: config.launchAtLogin)
+        _lockPrimaryDataSource = State(initialValue: config.lockPrimaryDataSource)
+        _autoRestorePrimarySource = State(initialValue: config.autoRestorePrimarySource)
         self.onSave = onSave
     }
 
@@ -138,6 +142,13 @@ struct SettingsView: View {
             ForEach(DataSource.allCases, id: \.self) { s in Text(s.rawValue).tag(s) }
         }
         .pickerStyle(.menu).labelsHidden()
+
+        Toggle("锁定主数据源（不自动降级）", isOn: $lockPrimaryDataSource)
+            .toggleStyle(.switch)
+
+        Toggle("故障恢复后自动回切主数据源", isOn: $autoRestorePrimarySource)
+            .toggleStyle(.switch)
+            .disabled(lockPrimaryDataSource)
 
         Divider()
 
@@ -405,6 +416,8 @@ struct SettingsView: View {
         cfg.carouselEnabled  = carouselEnabled
         cfg.carouselInterval = carouselInterval
         cfg.dataSource       = dataSource
+        cfg.lockPrimaryDataSource = lockPrimaryDataSource
+        cfg.autoRestorePrimarySource = autoRestorePrimarySource && !lockPrimaryDataSource
         cfg.priceAlerts      = priceAlerts
         cfg.launchAtLogin    = launchAtLogin
         cfg.holdings         = holdings

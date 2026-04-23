@@ -111,6 +111,11 @@ struct StableContextMenu: View {
                         NSWorkspace.shared.open(url)
                     }
                 }
+                Button("在 Coinbase 查看") {
+                    if let url = URL(string: "https://exchange.coinbase.com/trade/\(upSym)-USD") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
 
                 Divider()
             }

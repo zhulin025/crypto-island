@@ -119,8 +119,116 @@ class IslandInteractionState: ObservableObject {
 enum DataSource: String, Codable, CaseIterable {
     case binance   = "Binance (实时WebSocket)"
     case okx       = "OKX (实时WebSocket)"
+    case coinbase  = "Coinbase (实时WebSocket)"
     case coingecko = "CoinGecko (稳定轮询)"
     case gate      = "Gate.io (实时WebSocket)"
+
+    var shortName: String {
+        switch self {
+        case .binance: return "Binance"
+        case .okx: return "OKX"
+        case .coinbase: return "Coinbase"
+        case .coingecko: return "CoinGecko"
+        case .gate: return "Gate"
+        }
+    }
+
+    var supportsWebSocket: Bool {
+        switch self {
+        case .coingecko: return false
+        default: return true
+        }
+    }
+
+    var supportsRealtimeTicker: Bool { true }
+
+    var supportsKlines: Bool { true }
+}
+
+enum SourceRole: String, CaseIterable, Identifiable {
+    case realtime = "实时源"
+    case snapshot = "快照源"
+    case kline = "K线源"
+
+    var id: String { rawValue }
+}
+
+enum SourceConnectionState: String, Codable {
+    case idle
+    case connecting
+    case live
+    case degraded
+    case backingOff
+    case failed
+
+    var label: String {
+        switch self {
+        case .idle: return "空闲"
+        case .connecting: return "连接中"
+        case .live: return "在线"
+        case .degraded: return "降级"
+        case .backingOff: return "退避重连"
+        case .failed: return "失败"
+        }
+    }
+}
+
+struct DataSourceHealth: Identifiable {
+    let id: DataSource
+    var state: SourceConnectionState = .idle
+    var latencyMs: Double?
+    var disconnectCount: Int = 0
+    var consecutiveFailures: Int = 0
+    var lastMessageAt: Date?
+    var lastSuccessAt: Date?
+    var nextRetryAt: Date?
+    var lastError: String?
+
+    var score: Int {
+        var value = 100
+        value -= disconnectCount * 6
+        value -= consecutiveFailures * 8
+        if let latencyMs {
+            value -= Int(latencyMs / 80.0)
+        }
+        if let lastMessageAt {
+            let age = Date().timeIntervalSince(lastMessageAt)
+            if age > 10 { value -= 10 }
+            if age > 20 { value -= 15 }
+        } else if state != .idle {
+            value -= 20
+        }
+        switch state {
+        case .live:
+            value += 5
+        case .degraded:
+            value -= 10
+        case .backingOff:
+            value -= 15
+        case .failed:
+            value -= 25
+        default:
+            break
+        }
+        return min(100, max(0, value))
+    }
+
+    var statusLine: String {
+        var parts = [state.label, "\(score)分"]
+        if let latencyMs {
+            parts.append("\(Int(latencyMs))ms")
+        }
+        if disconnectCount > 0 {
+            parts.append("断线\(disconnectCount)")
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
+struct SourceRoleAssignment: Identifiable {
+    let role: SourceRole
+    let source: DataSource?
+    var id: String { role.id }
 }
 
 // MARK: - CryptoCoin
@@ -134,6 +242,13 @@ struct CryptoCoin: Codable, Hashable, Identifiable, Equatable {
     var isCustom: Bool = false
 
     var gateSymbol: String { okxSymbol.replacingOccurrences(of: "-", with: "_") }
+    var coinbaseSymbol: String { "\(baseSymbol)-USD" }
+    var baseSymbol: String {
+        if binanceSymbol.hasSuffix("USDT") {
+            return String(binanceSymbol.dropLast(4))
+        }
+        return binanceSymbol.replacingOccurrences(of: "-USDT", with: "")
+    }
 
     static func == (lhs: CryptoCoin, rhs: CryptoCoin) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
@@ -195,6 +310,8 @@ struct AppConfig: Codable {
     var carouselEnabled: Bool        = false
     var carouselInterval: Double     = 5.0
     var dataSource: DataSource       = .okx
+    var lockPrimaryDataSource: Bool  = false
+    var autoRestorePrimarySource: Bool = true
     var priceAlerts: [PriceAlert]    = []
     var launchAtLogin: Bool          = false
     var holdings: [PortfolioHolding] = []
@@ -210,6 +327,8 @@ struct AppConfig: Codable {
         carouselEnabled  = (try? c.decode(Bool.self,               forKey: .carouselEnabled))  ?? false
         carouselInterval = (try? c.decode(Double.self,             forKey: .carouselInterval)) ?? 5.0
         dataSource       = (try? c.decode(DataSource.self,         forKey: .dataSource))       ?? .okx
+        lockPrimaryDataSource = (try? c.decode(Bool.self,          forKey: .lockPrimaryDataSource)) ?? false
+        autoRestorePrimarySource = (try? c.decode(Bool.self,       forKey: .autoRestorePrimarySource)) ?? true
         priceAlerts      = (try? c.decode([PriceAlert].self,       forKey: .priceAlerts))      ?? []
         launchAtLogin    = (try? c.decode(Bool.self,               forKey: .launchAtLogin))    ?? false
         holdings         = (try? c.decode([PortfolioHolding].self, forKey: .holdings))         ?? []

@@ -15,11 +15,12 @@ struct CoinDetailPanelView: View {
         let notchW = notchInfo.hasNotch ? notchInfo.rect.width : 179
         return notchW + (tickerSideWidth - tickerOffset) * 2
     }
-    static let panelHeight: CGFloat = 205
+    static let panelHeight: CGFloat = 236
 
     // Kline state (local to panel)
     @State private var klineBars:     [KlineBar] = []
     @State private var isLoadingKlines = false
+    @State private var klineRequestToken = UUID()
 
     private var currentCoin: Coin? {
         switch state.expandedSide {
@@ -174,6 +175,15 @@ struct CoinDetailPanelView: View {
                 } else {
                     Spacer(minLength: 8)
                 }
+
+                Divider()
+                    .background(Color.white.opacity(0.08))
+                    .padding(.horizontal, 16)
+
+                SourceStatusSection(service: service)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                    .padding(.top, 4)
             }
             .frame(width: CoinDetailPanelView.panelWidth) // 确保内部内容也填满宽度
         }
@@ -201,7 +211,10 @@ struct CoinDetailPanelView: View {
     private func fetchKlines(cryptoCoin: CryptoCoin) {
         isLoadingKlines = true
         klineBars = []
+        let token = UUID()
+        klineRequestToken = token
         service.fetchKlines(coin: cryptoCoin, timeframe: state.selectedTimeframe) { bars in
+            guard token == self.klineRequestToken else { return }
             self.klineBars = bars
             self.isLoadingKlines = false
         }
@@ -226,6 +239,52 @@ struct CoinDetailPanelView: View {
         return CryptoCoin.presets.first {
             $0.id == s || $0.binanceSymbol.lowercased().hasPrefix(s)
         }?.displayName ?? symbol
+    }
+}
+
+struct SourceStatusSection: View {
+    @ObservedObject var service: BinanceService
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(service.sourceRoleSummary) { assignment in
+                HStack(spacing: 6) {
+                    Text(assignment.role.rawValue)
+                        .font(.system(size: 8))
+                        .foregroundColor(.white.opacity(0.35))
+                        .frame(width: 36, alignment: .leading)
+
+                    if let source = assignment.source {
+                        let health = service.health(for: source)
+                        Text(source.shortName)
+                            .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.85))
+                        Text(health.statusLine)
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundColor(color(for: health.state))
+                            .lineLimit(1)
+                    } else {
+                        Text("未分配")
+                            .font(.system(size: 8))
+                            .foregroundColor(.white.opacity(0.35))
+                    }
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    private func color(for state: SourceConnectionState) -> Color {
+        switch state {
+        case .live:
+            return Color(red: 0.25, green: 0.85, blue: 0.45)
+        case .degraded, .backingOff:
+            return Color.orange
+        case .failed:
+            return Color.red
+        default:
+            return .white.opacity(0.55)
+        }
     }
 }
 
