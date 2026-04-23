@@ -1,6 +1,8 @@
 import Foundation
 import SwiftUI
 
+// MARK: - Coin
+
 struct Coin: Identifiable, Codable {
     let id: String
     var symbol: String
@@ -45,6 +47,55 @@ struct Coin: Identifiable, Codable {
     }
 }
 
+// MARK: - Kline
+
+struct KlineBar: Identifiable {
+    var id: Date { time }
+    let open, high, low, close: Double
+    let volume: Double
+    let time: Date
+    var isBullish: Bool { close >= open }
+}
+
+enum KlineTimeframe: String, CaseIterable, Codable {
+    case h1 = "1H"
+    case h4 = "4H"
+    case d1 = "1D"
+
+    var binanceInterval: String {
+        switch self {
+        case .h1: return "1h"
+        case .h4: return "4h"
+        case .d1: return "1d"
+        }
+    }
+
+    var okxBar: String {
+        switch self {
+        case .h1: return "1H"
+        case .h4: return "4H"
+        case .d1: return "1Dutc"
+        }
+    }
+}
+
+// MARK: - Portfolio
+
+struct PortfolioHolding: Codable, Identifiable {
+    var id = UUID()
+    var coinId: String
+    var symbol: String
+    var quantity: Double
+    var avgCostUSD: Double
+
+    func currentValue(price: Double) -> Double { quantity * price }
+    func pnl(price: Double) -> Double { (price - avgCostUSD) * quantity }
+    func pnlPercent(price: Double) -> Double {
+        guard avgCostUSD > 0 else { return 0 }
+        return (price - avgCostUSD) / avgCostUSD * 100
+    }
+}
+
 // MARK: - Island Interaction State
 
 enum ExpandedSide: Equatable {
@@ -53,6 +104,7 @@ enum ExpandedSide: Equatable {
 
 class IslandInteractionState: ObservableObject {
     @Published var expandedSide: ExpandedSide = .none
+    @Published var selectedTimeframe: KlineTimeframe = .h1
 }
 
 // MARK: - Data Source
@@ -61,6 +113,7 @@ enum DataSource: String, Codable, CaseIterable {
     case binance   = "Binance (实时WebSocket)"
     case okx       = "OKX (实时WebSocket)"
     case coingecko = "CoinGecko (稳定轮询)"
+    case gate      = "Gate.io (实时WebSocket)"
 }
 
 // MARK: - CryptoCoin
@@ -72,6 +125,8 @@ struct CryptoCoin: Codable, Hashable, Identifiable, Equatable {
     var okxSymbol: String
     var coinGeckoId: String
     var isCustom: Bool = false
+
+    var gateSymbol: String { okxSymbol.replacingOccurrences(of: "-", with: "_") }
 
     static func == (lhs: CryptoCoin, rhs: CryptoCoin) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
@@ -127,9 +182,29 @@ struct PriceAlert: Codable, Identifiable {
 // MARK: - App Config
 
 struct AppConfig: Codable {
-    var leftCoin: CryptoCoin   = CryptoCoin.presets[0]
-    var rightCoin: CryptoCoin  = CryptoCoin.presets[1]
-    var dataSource: DataSource = .okx
-    var priceAlerts: [PriceAlert] = []
-    var launchAtLogin: Bool = false
+    var leftCoin: CryptoCoin         = CryptoCoin.presets[0]
+    var rightCoin: CryptoCoin        = CryptoCoin.presets[1]
+    var watchlist: [CryptoCoin]      = Array(CryptoCoin.presets.prefix(6))
+    var carouselEnabled: Bool        = false
+    var carouselInterval: Double     = 5.0
+    var dataSource: DataSource       = .okx
+    var priceAlerts: [PriceAlert]    = []
+    var launchAtLogin: Bool          = false
+    var holdings: [PortfolioHolding] = []
+
+    // Graceful decoding for new fields (backward compatible with old saved config)
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        leftCoin         = (try? c.decode(CryptoCoin.self,         forKey: .leftCoin))         ?? CryptoCoin.presets[0]
+        rightCoin        = (try? c.decode(CryptoCoin.self,         forKey: .rightCoin))        ?? CryptoCoin.presets[1]
+        watchlist        = (try? c.decode([CryptoCoin].self,        forKey: .watchlist))        ?? [leftCoin, rightCoin]
+        carouselEnabled  = (try? c.decode(Bool.self,               forKey: .carouselEnabled))  ?? false
+        carouselInterval = (try? c.decode(Double.self,             forKey: .carouselInterval)) ?? 5.0
+        dataSource       = (try? c.decode(DataSource.self,         forKey: .dataSource))       ?? .okx
+        priceAlerts      = (try? c.decode([PriceAlert].self,       forKey: .priceAlerts))      ?? []
+        launchAtLogin    = (try? c.decode(Bool.self,               forKey: .launchAtLogin))    ?? false
+        holdings         = (try? c.decode([PortfolioHolding].self, forKey: .holdings))         ?? []
+    }
 }

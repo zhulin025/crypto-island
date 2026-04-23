@@ -18,54 +18,153 @@ struct CryptoIslandApp: App {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
-    var overlayWindow:  IslandOverlayWindow?
+    var overlayWindow:    IslandOverlayWindow?
     var leftClickWindow:  SingleClickWindow?
     var rightClickWindow: SingleClickWindow?
-    var detailWindow:   CoinDetailWindow?
-    var settingsWindow: NSWindow?
+    var detailWindow:     CoinDetailWindow?
+    var settingsWindow:   NSWindow?
 
-    @Published var service      = BinanceService()
-    @Published var config       = AppConfig()
-    @Published var islandState  = IslandInteractionState()
+    @Published var service       = BinanceService()
+    @Published var config        = AppConfig()
+    @Published var islandState   = IslandInteractionState()
+    let marketService            = MarketService()
 
     private var cancellables = Set<AnyCancellable>()
+
+    // MARK: - Launch
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         loadConfig()
         requestNotificationPermission()
         setupServiceCallbacks()
+        marketService.start()
+        setupWindows()
+        service.startTracking(config: config)
+        setupStatusItem()
+        observeScreenChanges()
+        observePowerState()
+    }
 
-        let screenRect = NSScreen.main?.frame ?? .zero
+    // MARK: - Windows Setup
+
+    private var primaryScreen: NSScreen {
+        NSScreen.screens.first ?? NSScreen.main ?? NSScreen()
+    }
+
+    private func setupWindows() {
+        let screen    = primaryScreen.frame
         let notchInfo = NotchDetector.shared.getNotchInfo()
-        let notchRect = notchInfo.hasNotch ? notchInfo.rect : NSRect(x: (screenRect.width - 179)/2, y: screenRect.height - 32, width: 179, height: 32)
-        
+        let notchRect = notchInfo.hasNotch
+            ? notchInfo.rect
+            : NSRect(x: (screen.width - 179) / 2, y: screen.height - 32, width: 179, height: 32)
+
         let tickerW = CoinDetailPanelView.tickerSideWidth
         let offset  = CoinDetailPanelView.tickerOffset
         let barH    = IslandOverlayWindow.overlayHeight
 
-        // 主 overlay（只显示内容，穿透鼠标）
-        let islandView = IslandView(service: service)
+        // 主 overlay（穿透鼠标）
+        let islandView  = IslandView(state: islandState, service: service)
         let hostingView = NSHostingView(rootView: islandView)
-        hostingView.frame = NSRect(x: 0, y: 0, width: screenRect.width, height: barH)
+        hostingView.frame = NSRect(x: 0, y: 0, width: screen.width, height: barH)
         overlayWindow = IslandOverlayWindow(contentView: hostingView)
         overlayWindow?.orderFront(nil)
 
-        // 左点击捕获窗口
-        let leftRect = NSRect(x: notchRect.minX - tickerW + offset, y: screenRect.height - 32, width: tickerW, height: 32)
-        leftClickWindow = SingleClickWindow(rect: leftRect, side: .left, state: islandState)
+        // 左点击窗口
+        let leftRect = NSRect(x: notchRect.minX - tickerW + offset,
+                              y: screen.height - 32, width: tickerW, height: 32)
+        leftClickWindow = SingleClickWindow(rect: leftRect, side: .left, state: islandState,
+                                            service: service, onOpenSettings: { [weak self] in self?.openSettings() })
         leftClickWindow?.orderFront(nil)
 
-        // 右点击捕获窗口
-        let rightRect = NSRect(x: notchRect.maxX - offset, y: screenRect.height - 32, width: tickerW, height: 32)
-        rightClickWindow = SingleClickWindow(rect: rightRect, side: .right, state: islandState)
+        // 右点击窗口
+        let rightRect = NSRect(x: notchRect.maxX - offset,
+                               y: screen.height - 32, width: tickerW, height: 32)
+        rightClickWindow = SingleClickWindow(rect: rightRect, side: .right, state: islandState,
+                                             service: service, onOpenSettings: { [weak self] in self?.openSettings() })
         rightClickWindow?.orderFront(nil)
 
-        // 展开面板
-        detailWindow = CoinDetailWindow(state: islandState, service: service)
+        // 展开详情面板
+        detailWindow = CoinDetailWindow(state: islandState, service: service,
+                                         market: marketService, holdings: config.holdings)
         detailWindow?.orderFront(nil)
+    }
 
-        service.startTracking(config: config)
-        setupStatusItem()
+    private func repositionWindows() {
+        let screen    = primaryScreen.frame
+        let notchInfo = NotchDetector.shared.getNotchInfo()
+        let notchRect = notchInfo.hasNotch
+            ? notchInfo.rect
+            : NSRect(x: (screen.width - 179) / 2, y: screen.height - 32, width: 179, height: 32)
+
+        let tickerW = CoinDetailPanelView.tickerSideWidth
+        let offset  = CoinDetailPanelView.tickerOffset
+        let barH    = IslandOverlayWindow.overlayHeight
+
+        overlayWindow?.setFrame(NSRect(x: 0, y: screen.height - barH, width: screen.width, height: barH),
+                                display: true)
+
+        let leftRect = NSRect(x: notchRect.minX - tickerW + offset,
+                              y: screen.height - 32, width: tickerW, height: 32)
+        leftClickWindow?.setFrame(leftRect, display: true)
+
+        let rightRect = NSRect(x: notchRect.maxX - offset,
+                               y: screen.height - 32, width: tickerW, height: 32)
+        rightClickWindow?.setFrame(rightRect, display: true)
+
+        // Recreate detail window to pick up new geometry
+        recreateDetailWindow()
+    }
+
+    private func recreateDetailWindow() {
+        detailWindow?.close()
+        detailWindow = CoinDetailWindow(state: islandState, service: service,
+                                         market: marketService, holdings: config.holdings)
+        detailWindow?.orderFront(nil)
+    }
+
+    // MARK: - Screen Change Observer
+
+    private func observeScreenChanges() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(screensDidChange),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+    }
+
+    @objc private func screensDidChange() {
+        NSLog("CryptoIsland: 屏幕布局变化，重新定位窗口")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.repositionWindows()
+        }
+    }
+
+    // MARK: - Power State Observer
+
+    private func observePowerState() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(powerStateDidChange),
+            name: NSNotification.Name.NSProcessInfoPowerStateDidChange,
+            object: nil
+        )
+        applyPowerState()
+    }
+
+    @objc private func powerStateDidChange() {
+        applyPowerState()
+    }
+
+    private func applyPowerState() {
+        let isLowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+        NSLog("CryptoIsland: 省电模式 = \(isLowPower)")
+        service.isLowPowerMode = isLowPower
+        if isLowPower {
+            marketService.stop()
+        } else {
+            marketService.start()
+        }
     }
 
     // MARK: - Service Callbacks
@@ -111,11 +210,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             }
             let controller = NSHostingController(rootView: view)
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 400, height: 560),
+                contentRect: NSRect(x: 0, y: 0, width: 420, height: 200), // 初始高度设小点
                 styleMask: [.titled, .closable],
                 backing: .buffered, defer: false)
             window.title = "Crypto Island 设置"
             window.contentViewController = controller
+            
+            // 动态计算高度
+            let fittingSize = controller.view.fittingSize
+            window.setContentSize(NSSize(width: 420, height: fittingSize.height))
+            
             window.center()
             window.isReleasedWhenClosed = false
             settingsWindow = window
@@ -130,16 +234,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         let oldLaunchAtLogin = config.launchAtLogin
         config = newConfig
         saveConfig()
-        // 切换数据源时收起展开面板
         islandState.expandedSide = .none
         service.startTracking(config: config)
+        recreateDetailWindow()
         if newConfig.launchAtLogin != oldLaunchAtLogin {
             setLaunchAtLogin(newConfig.launchAtLogin)
         }
     }
 
     private func loadConfig() {
-        if let data = UserDefaults.standard.data(forKey: "AppConfig"),
+        if let data    = UserDefaults.standard.data(forKey: "AppConfig"),
            let decoded = try? JSONDecoder().decode(AppConfig.self, from: data) {
             config = decoded
         }
