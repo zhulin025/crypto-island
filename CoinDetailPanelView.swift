@@ -15,7 +15,7 @@ struct CoinDetailPanelView: View {
         let notchW = notchInfo.hasNotch ? notchInfo.rect.width : 179
         return notchW + (tickerSideWidth - tickerOffset) * 2
     }
-    static let panelHeight: CGFloat = 230
+    static let panelHeight: CGFloat = 205
 
     // Kline state (local to panel)
     @State private var klineBars:     [KlineBar] = []
@@ -71,8 +71,8 @@ struct CoinDetailPanelView: View {
                 klineBars = []
             }
         }
-        .onChange(of: state.selectedTimeframe) { _ in
-            if let coin = currentCoin { loadKlines(for: coin) }
+        .onChange(of: state.selectedTimeframe) { tf in
+            if tf != .m1, let coin = currentCoin { loadKlines(for: coin) }
         }
     }
 
@@ -81,7 +81,7 @@ struct CoinDetailPanelView: View {
     @ViewBuilder
     private func panelContent(coin: Coin) -> some View {
         ZStack(alignment: .topLeading) {
-            IslandDropShape(radius: 14)
+            IslandDropShape(radius: 11)
                 .fill(Color.black)
 
             VStack(alignment: .leading, spacing: 0) {
@@ -134,13 +134,13 @@ struct CoinDetailPanelView: View {
                             Spacer()
                         }
                         .frame(height: 70)
-                    } else if klineBars.count >= 4 {
+                    } else if state.selectedTimeframe != .m1 && klineBars.count >= 4 {
                         KlineChartView(bars: klineBars)
-                            .frame(height: 70)
+                            .frame(height: 80)
                             .padding(.horizontal, 12)
-                    } else if currentHistory.count >= 4 {
+                    } else if currentHistory.count >= 2 {
                         SparklineView(prices: currentHistory)
-                            .frame(height: 70)
+                            .frame(height: 80)
                             .padding(.horizontal, 16)
                     } else {
                         HStack {
@@ -187,6 +187,11 @@ struct CoinDetailPanelView: View {
             let fallback = CryptoCoin.presets.first { $0.id == coin.symbol.lowercased() }
                 ?? CryptoCoin.custom(symbol: coin.symbol)
             fetchKlines(cryptoCoin: fallback)
+            return
+        }
+        if state.selectedTimeframe == .m1 {
+            isLoadingKlines = false
+            klineBars = []
             return
         }
         fetchKlines(cryptoCoin: cryptoCoin)
@@ -279,7 +284,7 @@ struct SparklineView: View {
 // MARK: - Shape：顶角直角，底角圆角
 
 struct IslandDropShape: Shape {
-    var radius: CGFloat = 14
+    var radius: CGFloat = 11
 
     func path(in rect: CGRect) -> Path {
         Path { p in

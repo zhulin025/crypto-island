@@ -58,12 +58,16 @@ struct KlineBar: Identifiable {
 }
 
 enum KlineTimeframe: String, CaseIterable, Codable {
+    case m1 = "实时"
+    case m15 = "15M"
     case h1 = "1H"
     case h4 = "4H"
     case d1 = "1D"
 
     var binanceInterval: String {
         switch self {
+        case .m1: return "1m"
+        case .m15: return "15m"
         case .h1: return "1h"
         case .h4: return "4h"
         case .d1: return "1d"
@@ -72,6 +76,8 @@ enum KlineTimeframe: String, CaseIterable, Codable {
 
     var okxBar: String {
         switch self {
+        case .m1: return "1m"
+        case .m15: return "15m"
         case .h1: return "1H"
         case .h4: return "4H"
         case .d1: return "1Dutc"
@@ -104,7 +110,8 @@ enum ExpandedSide: Equatable {
 
 class IslandInteractionState: ObservableObject {
     @Published var expandedSide: ExpandedSide = .none
-    @Published var selectedTimeframe: KlineTimeframe = .h1
+    @Published var selectedTimeframe: KlineTimeframe = .m1
+    @Published var isPrivacyMode: Bool = false
 }
 
 // MARK: - Data Source

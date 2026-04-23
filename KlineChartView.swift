@@ -19,9 +19,14 @@ struct KlineChartView: View {
             let barWidth = size.width / CGFloat(bars.count)
             let bodyW    = max(1.5, barWidth * 0.55)
 
+            let priceAreaH  = size.height * 0.70
+            let volumeAreaH = size.height * 0.20
+            let gap: CGFloat = 8
+
             func yFor(_ price: Double) -> CGFloat {
                 let norm = CGFloat((price - lo) / range)
-                return size.height - (norm * size.height * 0.88 + size.height * 0.06)
+                // Price chart sits in the top area
+                return priceAreaH - (norm * priceAreaH * 0.9 + priceAreaH * 0.05)
             }
 
             for (i, bar) in bars.enumerated() {
@@ -29,6 +34,12 @@ struct KlineChartView: View {
                 let green = Color(red: 0.25, green: 0.85, blue: 0.45)
                 let red   = Color(red: 1.0,  green: 0.35, blue: 0.35)
                 let color = bar.isBullish ? green : red
+
+                // Volume Bar (at the very bottom area)
+                let maxVol = bars.map(\.volume).max() ?? 1
+                let volH   = CGFloat(bar.volume / maxVol) * volumeAreaH
+                let volRect = CGRect(x: cx - bodyW / 2, y: size.height - volH, width: bodyW, height: volH)
+                ctx.fill(Path(volRect), with: .color(color.opacity(0.35)))
 
                 // Wick
                 let wickTop = yFor(bar.high)
@@ -53,6 +64,7 @@ struct TimeframeSelector: View {
     @Binding var selected: KlineTimeframe
     var onChange: (KlineTimeframe) -> Void
 
+
     var body: some View {
         HStack(spacing: 4) {
             ForEach(KlineTimeframe.allCases, id: \.self) { tf in
@@ -63,7 +75,7 @@ struct TimeframeSelector: View {
                     Text(tf.rawValue)
                         .font(.system(size: 9, weight: .semibold, design: .monospaced))
                         .foregroundColor(selected == tf ? .black : .white.opacity(0.5))
-                        .frame(width: 26, height: 16)
+                        .frame(width: 32, height: 16)
                         .background(selected == tf ? Color.white.opacity(0.9) : Color.white.opacity(0.08))
                         .cornerRadius(3)
                 }
@@ -78,6 +90,7 @@ struct TimeframeSelector: View {
 
 struct MarketOverviewBar: View {
     @ObservedObject var market: MarketService
+
 
     var body: some View {
         HStack(spacing: 10) {

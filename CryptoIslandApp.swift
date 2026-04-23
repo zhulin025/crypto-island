@@ -3,6 +3,7 @@ import AppKit
 import ServiceManagement
 import UserNotifications
 import Combine
+import Carbon
 
 @main
 struct CryptoIslandApp: App {
@@ -18,6 +19,8 @@ struct CryptoIslandApp: App {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    static var shared: AppDelegate?
+
     var overlayWindow:    IslandOverlayWindow?
     var leftClickWindow:  SingleClickWindow?
     var rightClickWindow: SingleClickWindow?
@@ -28,12 +31,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     @Published var config        = AppConfig()
     @Published var islandState   = IslandInteractionState()
     let marketService            = MarketService()
+    
+    private var globalShortcut: GlobalShortcut?
 
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Launch
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppDelegate.shared = self
         loadConfig()
         requestNotificationPermission()
         setupServiceCallbacks()
@@ -43,6 +49,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         setupStatusItem()
         observeScreenChanges()
         observePowerState()
+        setupGlobalShortcut()
     }
 
     // MARK: - Windows Setup
@@ -186,6 +193,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
     }
 
+    // MARK: - Global Shortcut (Privacy Mode)
+
+    private func setupGlobalShortcut() {
+        // cmdKey and optionKey are from Carbon
+        let modifiers = UInt32(cmdKey | optionKey)
+        globalShortcut = GlobalShortcut(keyCode: 7, modifiers: modifiers) { [weak self] in
+            self?.togglePrivacyMode()
+        }
+        NSLog("CryptoIsland: Global shortcut registered (⌘⌥X)")
+    }
+
+
+    private func togglePrivacyMode() {
+        DispatchQueue.main.async {
+            self.islandState.isPrivacyMode.toggle()
+            if self.islandState.isPrivacyMode {
+                self.islandState.expandedSide = .none
+            }
+            // Update menu checkmark if exists
+            if let menu = self.statusItem?.menu, let item = menu.items.first {
+                item.state = self.islandState.isPrivacyMode ? .on : .off
+            }
+            NSLog("CryptoIsland: Privacy Mode toggled to \(self.islandState.isPrivacyMode)")
+        }
+    }
+
     // MARK: - Status Bar
 
     private var statusItem: NSStatusItem?
@@ -197,10 +230,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                                    accessibilityDescription: "Crypto Island")
         }
         let menu = NSMenu()
+        menu.addItem(NSMenuItem(title: "隐身模式 (⌘⌥X)", action: #selector(togglePrivacyModeFromMenu), keyEquivalent: "x"))
+        if let item = menu.items.first { item.keyEquivalentModifierMask = [.command, .option] }
+        menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "设置...", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
+    }
+
+    @objc func togglePrivacyModeFromMenu() {
+        togglePrivacyMode()
+        // Update menu item checkmark
+        if let menu = statusItem?.menu, let item = menu.items.first {
+            item.state = islandState.isPrivacyMode ? .on : .off
+        }
     }
 
     @objc func openSettings() {
@@ -235,7 +279,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         config = newConfig
         saveConfig()
         islandState.expandedSide = .none
-        service.startTracking(config: config)
+        service.startTracking(config: newConfig)
         recreateDetailWindow()
         if newConfig.launchAtLogin != oldLaunchAtLogin {
             setLaunchAtLogin(newConfig.launchAtLogin)
@@ -249,7 +293,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
     }
 
-    private func saveConfig() {
+    func saveConfig() {
         if let encoded = try? JSONEncoder().encode(config) {
             UserDefaults.standard.set(encoded, forKey: "AppConfig")
         }

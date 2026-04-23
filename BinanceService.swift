@@ -86,31 +86,64 @@ class BinanceService: ObservableObject {
 
     // MARK: - Public API
 
+    init() {
+        // Listen for manual quick switch
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("QuickSwitchCoin"), object: nil, queue: .main) { [weak self] note in
+            if let config = note.object as? AppConfig {
+                self?.startTracking(config: config)
+            }
+        }
+    }
+
     func startTracking(config: AppConfig) {
         self.config = config
         errorMessage = nil
+        allCoins.removeAll()
+        leftCoin = nil
+        rightCoin = nil
         consecutiveBinanceFailures = 0
         alreadyAutoSwitched = false
         firedAlertIds.removeAll()
 
         stopTracking()
 
-        // Build symbol → id lookup tables
-        buildSymbolMaps(watchlist: config.watchlist)
-
-        // Set up carousel
+        // 1. Set up carousel watchlist
         carouselWatchlist = config.watchlist.isEmpty ? [config.leftCoin, config.rightCoin] : config.watchlist
-        // Ensure leftCoin and rightCoin are in watchlist
+        
+        // 2. Ensure leftCoin and rightCoin are in watchlist to receive updates
         if !carouselWatchlist.contains(config.leftCoin) { carouselWatchlist.insert(config.leftCoin, at: 0) }
         if !carouselWatchlist.contains(config.rightCoin) { carouselWatchlist.insert(config.rightCoin, at: 1) }
 
-        carouselIdx = 0
-        allCoins.removeAll()
-        leftPriceHistory.removeAll()
-        rightPriceHistory.removeAll()
-        updateCarouselPair(animated: false)
+        // 3. Build symbol → id lookup tables from the actual tracked list
+        buildSymbolMaps(watchlist: carouselWatchlist)
+
+        // EXPLICITLY set the starting coins
+        if config.carouselEnabled {
+            // If carousel is on, try to stay at current index or start at 0
+            let idx = (0..<carouselWatchlist.count).first(where: { carouselWatchlist[$0].id == leftCoinId }) ?? 0
+            carouselIdx = idx / 2
+            updateCarouselPair(animated: false)
+        } else {
+            // If carousel is off, STRICTLY use the ones from config
+            leftCoinId  = config.leftCoin.id
+            rightCoinId = config.rightCoin.id
+            carouselIdx = 0
+            
+            DispatchQueue.main.async {
+                self.leftCoin  = self.allCoins[self.leftCoinId] ?? Coin(id: self.leftCoinId, symbol: config.leftCoin.id.uppercased(), price: 0, priceChangePercent: 0, high24h: 0, low24h: 0, volume24h: 0, lastUpdate: Date())
+                self.rightCoin = self.allCoins[self.rightCoinId] ?? Coin(id: self.rightCoinId, symbol: config.rightCoin.id.uppercased(), price: 0, priceChangePercent: 0, high24h: 0, low24h: 0, volume24h: 0, lastUpdate: Date())
+                self.leftPriceHistory.removeAll()
+                self.rightPriceHistory.removeAll()
+            }
+        }
 
         let trackingCoins = carouselWatchlist
+        
+        // Force the UI to notice the change immediately on main thread
+        DispatchQueue.main.async {
+            self.objectWillChange.send()
+            NSLog("CryptoIsland: service state reset for \(trackingCoins.map(\.id).joined(separator: ","))")
+        }
 
         NSLog("CryptoIsland: startTracking \(trackingCoins.map(\.id).joined(separator: ",")) via \(config.dataSource.rawValue)")
 

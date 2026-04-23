@@ -32,78 +32,90 @@ class SingleClickWindow: NSWindow {
 struct SimpleClickView: View {
     let side: ExpandedSide
     @ObservedObject var state: IslandInteractionState
-    @ObservedObject var service: BinanceService
+    let service: BinanceService
     var onOpenSettings: () -> Void
-
-    private var coin: Coin? {
-        side == .left ? service.leftCoin : service.rightCoin
-    }
 
     var body: some View {
         Color.white.opacity(0.0001)
             .contentShape(Rectangle())
             .onTapGesture {
+                guard !state.isPrivacyMode else { return }
                 withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
                     state.expandedSide = (state.expandedSide == side) ? .none : side
                 }
             }
             .contextMenu {
-                contextMenuItems()
+                if !state.isPrivacyMode {
+                    StableContextMenu(side: side, service: service, state: state, onOpenSettings: onOpenSettings)
+                }
             }
     }
+}
 
-    @ViewBuilder
-    private func contextMenuItems() -> some View {
-        if let coin = coin {
-            // 复制价格
-            Button(action: {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(coin.formattedPrice, forType: .string)
-            }) {
-                Label("复制价格  $\(coin.formattedPrice)", systemImage: "doc.on.doc")
+// 独立的菜单组件，不观察价格变化，解决闪烁问题
+struct StableContextMenu: View {
+    let side: ExpandedSide
+    let service: BinanceService
+    @ObservedObject var state: IslandInteractionState
+    var onOpenSettings: () -> Void
+
+    var body: some View {
+        Group {
+            let coin = (side == .left ? service.leftCoin : service.rightCoin)
+            
+            // 1. 复制操作 (仅在有数据时显示)
+            if let c = coin {
+                Button(action: {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(c.formattedPrice, forType: .string)
+                }) {
+                    Label("复制当前价格", systemImage: "doc.on.doc")
+                }
+
+                Button(action: {
+                    let full = "\(c.symbol)  $\(c.formattedPrice)  \(c.formattedChange)"
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(full, forType: .string)
+                }) {
+                    Label("复制完整信息", systemImage: "doc.on.clipboard")
+                }
+
+                Divider()
             }
 
-            Button(action: {
-                let full = "\(coin.symbol)  $\(coin.formattedPrice)  \(coin.formattedChange)"
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(full, forType: .string)
-            }) {
-                Label("复制完整信息", systemImage: "doc.on.clipboard")
+            // 2. 切换币种 (始终显示)
+            Menu("切换币种...") {
+                ForEach(CryptoCoin.presets.prefix(12)) { preset in
+                    Button(action: {
+                        quickSwitch(to: preset)
+                    }) {
+                        Text(preset.displayName)
+                    }
+                }
             }
 
             Divider()
 
-            // 跳转到交易所
-            Button(action: {
-                let sym = coin.symbol.lowercased()
-                if let url = URL(string: "https://www.binance.com/en/trade/\(sym)_usdt") {
-                    NSWorkspace.shared.open(url)
+            // 3. 跳转链接 (仅在有数据时显示)
+            if let c = coin {
+                let sym = c.symbol.lowercased()
+                let upSym = c.symbol.uppercased()
+
+                Button("在 Binance 查看") {
+                    if let url = URL(string: "https://www.binance.com/en/trade/\(sym)_usdt") {
+                        NSWorkspace.shared.open(url)
+                    }
                 }
-            }) {
-                Label("在 Binance 查看", systemImage: "safari")
+                Button("在 OKX 查看") {
+                    if let url = URL(string: "https://www.okx.com/trade-spot/\(upSym)-usdt") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+
+                Divider()
             }
 
-            Button(action: {
-                let sym = coin.symbol.uppercased()
-                if let url = URL(string: "https://www.okx.com/trade-spot/\(sym)-usdt") {
-                    NSWorkspace.shared.open(url)
-                }
-            }) {
-                Label("在 OKX 查看", systemImage: "safari")
-            }
-
-            Button(action: {
-                let sym = coin.symbol.lowercased()
-                if let url = URL(string: "https://www.coingecko.com/en/coins/\(sym)") {
-                    NSWorkspace.shared.open(url)
-                }
-            }) {
-                Label("在 CoinGecko 查看", systemImage: "chart.line.uptrend.xyaxis")
-            }
-
-            Divider()
-
-            // 展开/收起详情
+            // 4. 展开/收起
             Button(action: {
                 withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
                     state.expandedSide = (state.expandedSide == side) ? .none : side
@@ -118,10 +130,19 @@ struct SimpleClickView: View {
             Button(action: { onOpenSettings() }) {
                 Label("设置…", systemImage: "gear")
             }
-        } else {
-            Text("等待数据…")
-                .foregroundColor(.secondary)
         }
+    }
+
+    private func quickSwitch(to coin: CryptoCoin) {
+        guard let delegate = AppDelegate.shared else { return }
+        var newConfig = delegate.config
+        if side == .left {
+            newConfig.leftCoin = coin
+        } else {
+            newConfig.rightCoin = coin
+        }
+        // 更新配置并保存，同时触发行情更新和视图重建
+        delegate.updateConfig(newConfig: newConfig)
     }
 }
 
